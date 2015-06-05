@@ -1,4 +1,5 @@
 package MooseX::Storage::Engine;
+
 # ABSTRACT: The meta-engine to handle collapsing and expanding objects
 
 our $VERSION = '0.50';
@@ -15,17 +16,17 @@ our $CLASS_MARKER = '__CLASS__';
 has 'storage' => (
     is      => 'ro',
     isa     => 'HashRef',
-    default => sub {{}}
+    default => sub { {} }
 );
 
 has 'seen' => (
     is      => 'ro',
-    isa     => 'HashRef[Int]', # int is the refaddr
-    default => sub {{}}
+    isa     => 'HashRef[Int]',    # int is the refaddr
+    default => sub { {} }
 );
 
-has 'object' => (is => 'rw', isa => 'Object', predicate => '_has_object');
-has 'class'  => (is => 'rw', isa => 'Str');
+has 'object' => ( is => 'rw', isa => 'Object', predicate => '_has_object' );
+has 'class' => ( is => 'rw', isa => 'Str' );
 
 ## this is the API used by other modules ...
 
@@ -34,81 +35,89 @@ sub collapse_object {
 
     # NOTE:
     # mark the root object as seen ...
-    $self->seen->{refaddr $self->object} = undef;
+    $self->seen->{ refaddr $self->object } = undef;
 
-    $self->map_attributes('collapse_attribute', \%options);
+    $self->map_attributes( 'collapse_attribute', \%options );
     $self->storage->{$CLASS_MARKER} = $self->object->meta->identifier;
     return $self->storage;
 }
 
 sub expand_object {
-    my ($self, $data, %options) = @_;
+    my ( $self, $data, %options ) = @_;
 
-    $options{check_version}       = 1 unless exists $options{check_version};
-    $options{check_authority}     = 1 unless exists $options{check_authority};
+    $options{check_version}   = 1 unless exists $options{check_version};
+    $options{check_authority} = 1 unless exists $options{check_authority};
 
     # NOTE:
     # mark the root object as seen ...
-    $self->seen->{refaddr $data} = undef;
+    $self->seen->{ refaddr $data} = undef;
 
-    $self->map_attributes('expand_attribute', $data, \%options);
+    $self->map_attributes( 'expand_attribute', $data, \%options );
     return $self->storage;
 }
 
 ## this is the internal API ...
 
 sub collapse_attribute {
-    my ($self, $attr, $options)  = @_;
-    my $value = $self->collapse_attribute_value($attr, $options);
+    my ( $self, $attr, $options ) = @_;
+    my $value = $self->collapse_attribute_value( $attr, $options );
 
-    return unless $attr->has_value($self->object);
-    $self->storage->{$attr->name} = $value;
+    return unless $attr->has_value( $self->object );
+    $self->storage->{ $attr->name } = $value;
 }
 
 sub expand_attribute {
-    my ($self, $attr, $data, $options)  = @_;
-    return unless exists $data->{$attr->name};
-    my $value = $self->expand_attribute_value($attr, $data->{$attr->name}, $options);
-    $self->storage->{$attr->name} = $value;
+    my ( $self, $attr, $data, $options ) = @_;
+    return unless exists $data->{ $attr->name };
+    my $value = $self->expand_attribute_value( $attr, $data->{ $attr->name },
+        $options );
+    $self->storage->{ $attr->name } = $value;
 }
 
 sub collapse_attribute_value {
-    my ($self, $attr, $options)  = @_;
+    my ( $self, $attr, $options ) = @_;
+
     # Faster, but breaks attributes without readers, do we care?
     #my $value = $attr->get_read_method_ref->($self->object);
-    my $value = $attr->get_value($self->object);
+    my $value = $attr->get_value( $self->object );
 
     # NOTE:
     # this might not be enough, we might
     # need to make it possible for the
     # cycle checker to return the value
-    $self->check_for_cycle_in_collapse($attr, $value)
+    $self->check_for_cycle_in_collapse( $attr, $value )
         if ref $value;
 
-    if (defined $value && $attr->has_type_constraint) {
-        my $type_converter = $self->find_type_handler($attr->type_constraint, $value);
-        (defined $type_converter)
+    if ( defined $value && $attr->has_type_constraint ) {
+        my $type_converter
+            = $self->find_type_handler( $attr->type_constraint, $value );
+        ( defined $type_converter )
             || confess "Cannot convert " . $attr->type_constraint->name;
-        $value = $type_converter->{collapse}->($value, $options);
+        $value = $type_converter->{collapse}->( $value, $options );
     }
     return $value;
 }
 
 sub expand_attribute_value {
-    my ($self, $attr, $value, $options)  = @_;
+    my ( $self, $attr, $value, $options ) = @_;
 
     # NOTE:
     # (see comment in method above ^^)
-    if( ref $value and not(
-        $options->{disable_cycle_check} or
-        $self->class->does('MooseX::Storage::Traits::DisableCycleDetection')
-    )) {
-        $self->check_for_cycle_in_collapse($attr, $value)
+    if (ref $value
+        and not(
+            $options->{disable_cycle_check}
+            or $self->class->does(
+                'MooseX::Storage::Traits::DisableCycleDetection')
+        )
+        )
+    {
+        $self->check_for_cycle_in_collapse( $attr, $value );
     }
 
-    if (defined $value && $attr->has_type_constraint) {
-        my $type_converter = $self->find_type_handler($attr->type_constraint, $value);
-        $value = $type_converter->{expand}->($value, $options);
+    if ( defined $value && $attr->has_type_constraint ) {
+        my $type_converter
+            = $self->find_type_handler( $attr->type_constraint, $value );
+        $value = $type_converter->{expand}->( $value, $options );
     }
     return $value;
 }
@@ -121,33 +130,37 @@ sub expand_attribute_value {
 # anyway.
 
 sub check_for_cycle_in_collapse {
-    my ($self, $attr, $value) = @_;
-    (!exists $self->seen->{refaddr $value})
+    my ( $self, $attr, $value ) = @_;
+    ( !exists $self->seen->{ refaddr $value} )
         || confess "Basic Engine does not support cycles in class("
-                 . ($attr->associated_class->name) . ").attr("
-                 . ($attr->name) . ") with $value";
-    $self->seen->{refaddr $value} = undef;
+        . ( $attr->associated_class->name )
+        . ").attr("
+        . ( $attr->name )
+        . ") with $value";
+    $self->seen->{ refaddr $value} = undef;
 }
 
 sub check_for_cycle_in_expansion {
-    my ($self, $attr, $value) = @_;
-    (!exists $self->seen->{refaddr $value})
-    || confess "Basic Engine does not support cycles in class("
-             . ($attr->associated_class->name) . ").attr("
-             . ($attr->name) . ") with $value";
-    $self->seen->{refaddr $value} = undef;
+    my ( $self, $attr, $value ) = @_;
+    ( !exists $self->seen->{ refaddr $value} )
+        || confess "Basic Engine does not support cycles in class("
+        . ( $attr->associated_class->name )
+        . ").attr("
+        . ( $attr->name )
+        . ") with $value";
+    $self->seen->{ refaddr $value} = undef;
 }
 
 # util methods ...
 
 sub map_attributes {
-    my ($self, $method_name, @args) = @_;
-    map {
-        $self->$method_name($_, @args)
-    } grep {
+    my ( $self, $method_name, @args ) = @_;
+    map { $self->$method_name( $_, @args ) } grep {
+
         # Skip our special skip attribute :)
         !$_->does('MooseX::Storage::Meta::Attribute::Trait::DoNotSerialize')
-    } ($self->_has_object ? $self->object : $self->class)->meta->get_all_attributes;
+        } ( $self->_has_object ? $self->object : $self->class )
+        ->meta->get_all_attributes;
 }
 
 ## ------------------------------------------------------------------
@@ -162,131 +175,170 @@ sub map_attributes {
 # below, so I need easy access
 my %OBJECT_HANDLERS = (
     expand => sub {
-        my ($data, $options) = @_;
-        (exists $data->{$CLASS_MARKER})
+        my ( $data, $options ) = @_;
+        ( exists $data->{$CLASS_MARKER} )
             || confess "Serialized item has no class marker";
+
         # check the class more thoroughly here ...
-        my ($class, $version, $authority) = (split '-' => $data->{$CLASS_MARKER});
+        my ( $class, $version, $authority )
+            = ( split '-' => $data->{$CLASS_MARKER} );
         my $meta = eval { $class->meta };
         confess "Class ($class) is not loaded, cannot unpack" if $@;
 
-        if ($options->{check_version}) {
+        if ( $options->{check_version} ) {
             my $meta_version = $meta->version;
-            if (defined $meta_version && $version) {
-                if ($options->{check_version} eq 'allow_less_than') {
-                    ($meta_version <= $version)
-                        || confess "Class ($class) versions is not less than currently available."
-                                 . " got=($version) available=($meta_version)";
+            if ( defined $meta_version && $version ) {
+                if ( $options->{check_version} eq 'allow_less_than' ) {
+                    ( $meta_version <= $version )
+                        || confess
+                        "Class ($class) versions is not less than currently available."
+                        . " got=($version) available=($meta_version)";
                 }
-                elsif ($options->{check_version} eq 'allow_greater_than') {
-                    ($meta->version >= $version)
-                        || confess "Class ($class) versions is not greater than currently available."
-                                 . " got=($version) available=($meta_version)";
+                elsif ( $options->{check_version} eq 'allow_greater_than' ) {
+                    ( $meta->version >= $version )
+                        || confess
+                        "Class ($class) versions is not greater than currently available."
+                        . " got=($version) available=($meta_version)";
                 }
                 else {
-                    ($meta->version == $version)
+                    ( $meta->version == $version )
                         || confess "Class ($class) versions don't match."
-                                 . " got=($version) available=($meta_version)";
+                        . " got=($version) available=($meta_version)";
                 }
             }
         }
 
-        if ($options->{check_authority}) {
+        if ( $options->{check_authority} ) {
             my $meta_authority = $meta->authority;
-            ($meta->authority eq $authority)
+            ( $meta->authority eq $authority )
                 || confess "Class ($class) authorities don't match."
-                         . " got=($authority) available=($meta_authority)"
+                . " got=($authority) available=($meta_authority)"
                 if defined $meta_authority && defined $authority;
         }
 
         # all is well ...
-        $class->unpack($data, %$options);
+        $class->unpack( $data, %$options );
     },
     collapse => sub {
         my ( $obj, $options ) = @_;
+
 #        ($obj->can('does') && $obj->does('MooseX::Storage::Basic'))
 #            || confess "Bad object ($obj) does not do MooseX::Storage::Basic role";
-        ($obj->can('pack'))
-            || confess "Object ($obj) does not have a &pack method, cannot collapse";
+        ( $obj->can('pack') )
+            || confess
+            "Object ($obj) does not have a &pack method, cannot collapse";
         $obj->pack(%$options);
     },
 );
 
-
 my %TYPES;
 %TYPES = (
+
     # NOTE:
     # we need to make sure that we properly numify the numbers
     # before and after them being futzed with, because some of
     # the JSON engines are stupid/annoying/frustrating
-    'Int'      => { expand => sub { $_[0] + 0 }, collapse => sub { $_[0] + 0 } },
-    'Num'      => { expand => sub { $_[0] + 0 }, collapse => sub { $_[0] + 0 } },
+    'Int' => {
+        expand   => sub { $_[0] + 0 },
+        collapse => sub { $_[0] + 0 }
+    },
+    'Num' => {
+        expand   => sub { $_[0] + 0 },
+        collapse => sub { $_[0] + 0 }
+    },
+
     # These are boring ones, so they use the identity function ...
-    'Str'      => { expand => sub { shift }, collapse => sub { shift } },
-    'Value'    => { expand => sub { shift }, collapse => sub { shift } },
-    'Bool'     => { expand => sub { shift }, collapse => sub { shift } },
+    'Str' => {
+        expand   => sub {shift},
+        collapse => sub {shift}
+    },
+    'Value' => {
+        expand   => sub {shift},
+        collapse => sub {shift}
+    },
+    'Bool' => {
+        expand   => sub {shift},
+        collapse => sub {shift}
+    },
+
     # These are the trickier ones, (see notes)
     'ArrayRef' => {
         expand => sub {
             my ( $array, @args ) = @_;
-            foreach my $i (0 .. $#{$array}) {
-                if (ref($array->[$i]) eq 'HASH') {
-                    $array->[$i] = exists($array->[$i]{$CLASS_MARKER})
-                        ? $OBJECT_HANDLERS{expand}->($array->[$i], @args)
-                        : $TYPES{HashRef}{expand}->($array->[$i], @args);
+            foreach my $i ( 0 .. $#{$array} ) {
+                if ( ref( $array->[$i] ) eq 'HASH' ) {
+                    $array->[$i]
+                        = exists( $array->[$i]{$CLASS_MARKER} )
+                        ? $OBJECT_HANDLERS{expand}->( $array->[$i], @args )
+                        : $TYPES{HashRef}{expand}->( $array->[$i], @args );
                 }
-                elsif (ref($array->[$i]) eq 'ARRAY') {
-                    $array->[$i] = $TYPES{ArrayRef}{expand}->($array->[$i], @args);
+                elsif ( ref( $array->[$i] ) eq 'ARRAY' ) {
+                    $array->[$i]
+                        = $TYPES{ArrayRef}{expand}->( $array->[$i], @args );
                 }
             }
             $array;
         },
         collapse => sub {
             my ( $array, @args ) = @_;
+
             # NOTE:
             # we need to make a copy because
             # otherwise it will affect the
             # other real version.
-            [ map {
-                blessed($_)
-                    ? $OBJECT_HANDLERS{collapse}->($_, @args)
-                    : $TYPES{ref($_)}
-                    ? $TYPES{ref($_)}->{collapse}->($_, @args)
-                    : $_
-            } @$array ]
+            [   map {
+                    blessed($_) ? $OBJECT_HANDLERS{collapse}->( $_, @args )
+                        : $TYPES{ ref($_) }
+                        ? $TYPES{ ref($_) }->{collapse}->( $_, @args )
+                        : $_
+                } @$array
+            ];
         }
     },
-    'HashRef'  => {
-        expand   => sub {
+    'HashRef' => {
+        expand => sub {
             my ( $hash, @args ) = @_;
-            foreach my $k (keys %$hash) {
-                if (ref($hash->{$k}) eq 'HASH' ) {
-                    $hash->{$k} = exists($hash->{$k}->{$CLASS_MARKER})
-                        ? $OBJECT_HANDLERS{expand}->($hash->{$k}, @args)
-                        : $TYPES{HashRef}{expand}->($hash->{$k}, @args);
+            foreach my $k ( keys %$hash ) {
+                if ( ref( $hash->{$k} ) eq 'HASH' ) {
+                    $hash->{$k}
+                        = exists( $hash->{$k}->{$CLASS_MARKER} )
+                        ? $OBJECT_HANDLERS{expand}->( $hash->{$k}, @args )
+                        : $TYPES{HashRef}{expand}->( $hash->{$k}, @args );
                 }
-                elsif (ref($hash->{$k}) eq 'ARRAY') {
-                    $hash->{$k} = $TYPES{ArrayRef}{expand}->($hash->{$k}, @args);
+                elsif ( ref( $hash->{$k} ) eq 'ARRAY' ) {
+                    $hash->{$k}
+                        = $TYPES{ArrayRef}{expand}->( $hash->{$k}, @args );
                 }
             }
             $hash;
         },
         collapse => sub {
             my ( $hash, @args ) = @_;
+
             # NOTE:
             # we need to make a copy because
             # otherwise it will affect the
             # other real version.
-            +{ map {
-                blessed($hash->{$_})
-                    ? ($_ => $OBJECT_HANDLERS{collapse}->($hash->{$_}, @args))
-                    : $TYPES{ref($hash->{$_})}
-                    ? ($_ => $TYPES{ref($hash->{$_})}{collapse}->($hash->{$_}, @args))
-                    : ($_ => $hash->{$_})
-            } keys %$hash }
+            +{  map {
+                    if ( blessed( $hash->{$_} )
+                        && !$TYPES{ ref( $hash->{$_} ) } )
+                    {
+                        ( $_ => $OBJECT_HANDLERS{collapse}
+                                ->( $hash->{$_}, @args ) );
+                    }
+                    elsif ( $TYPES{ ref( $hash->{$_} ) } ) {
+                        ( $_ => $TYPES{ ref( $hash->{$_} ) }{collapse}
+                                ->( $hash->{$_}, @args ) );
+                    }
+                    else {
+                        ( $_ => $hash->{$_} );
+                    }
+                } keys %$hash
+            };
         }
     },
-    'Object'   => \%OBJECT_HANDLERS,
+    'Object' => \%OBJECT_HANDLERS,
+
     # NOTE:
     # The sanity of enabling this feature by
     # default is very questionable.
@@ -303,43 +355,44 @@ my %TYPES;
     'ARRAY' => $TYPES{ArrayRef},
 );
 
-
 sub add_custom_type_handler {
-    my ($self, $type_name, %handlers) = @_;
-    (exists $handlers{expand} && exists $handlers{collapse})
-        || confess "Custom type handlers need an expand *and* a collapse method";
+    my ( $self, $type_name, %handlers ) = @_;
+    ( exists $handlers{expand} && exists $handlers{collapse} )
+        || confess
+        "Custom type handlers need an expand *and* a collapse method";
     $TYPES{$type_name} = \%handlers;
 }
 
 sub remove_custom_type_handler {
-    my ($self, $type_name) = @_;
+    my ( $self, $type_name ) = @_;
     delete $TYPES{$type_name} if exists $TYPES{$type_name};
 }
 
 sub find_type_handler {
-    my ($self, $type_constraint, $value) = @_;
+    my ( $self, $type_constraint, $value ) = @_;
 
     # check if the type is a Maybe and
     # if its parent is not parameterized.
     # If both is true recurse this method
     # using ->type_parameter.
-    return $self->find_type_handler($type_constraint->type_parameter, $value)
-        if ($type_constraint->parent && $type_constraint->parent eq 'Maybe'
-          and not $type_constraint->parent->can('type_parameter'));
+    return $self->find_type_handler( $type_constraint->type_parameter,
+        $value )
+        if ( $type_constraint->parent && $type_constraint->parent eq 'Maybe'
+        and not $type_constraint->parent->can('type_parameter') );
 
     # find_type_for is a method of a union type.  If we can call that method
     # then we are dealign with a union and we need to ascertain which of
     # the union's types we need to use for the value we are serializing.
-    if($type_constraint->can('find_type_for')) {
+    if ( $type_constraint->can('find_type_for') ) {
         my $tc = $type_constraint->find_type_for($value);
-        return $self->find_type_handler($tc, $value) if defined($tc);
+        return $self->find_type_handler( $tc, $value ) if defined($tc);
     }
 
     # this should handle most type usages
     # since they they are usually just
     # the standard set of built-ins
-    return $TYPES{$type_constraint->name}
-        if exists $TYPES{$type_constraint->name};
+    return $TYPES{ $type_constraint->name }
+        if exists $TYPES{ $type_constraint->name };
 
     # the next possibility is they are
     # a subtype of the built-in types,
@@ -351,7 +404,7 @@ sub find_type_handler {
     # check more-specific types first.
     my %seen;
     my @fallback = grep { !$seen{$_}++ } qw/Int Num Str Value/, keys %TYPES;
-    foreach my $type ( @fallback ) {
+    foreach my $type (@fallback) {
         return $TYPES{$type}
             if $type_constraint->is_subtype_of($type);
     }
@@ -368,6 +421,18 @@ sub find_type_handler {
     # totally out the door ;)
     # - SL
 
+    if ( '__ANON__' eq $type_constraint->name
+        && $type_constraint->parameters )
+    {
+        my @constraint_names = ();
+        foreach my $param ( @{ $type_constraint->parameters } ) {
+            push @constraint_names, $param->name;
+        }
+        my $constraint_name = join( '+', @constraint_names );
+        return $TYPES{$constraint_name}
+            if exists $TYPES{$constraint_name};
+    }
+
     # NOTE:
     # if this method hasnt returned by now
     # then we have no been able to find a
@@ -376,8 +441,8 @@ sub find_type_handler {
 }
 
 sub find_type_handler_for {
-    my ($self, $type_handler_name) = @_;
-    $TYPES{$type_handler_name}
+    my ( $self, $type_handler_name ) = @_;
+    $TYPES{$type_handler_name};
 }
 
 no Moose::Role;
