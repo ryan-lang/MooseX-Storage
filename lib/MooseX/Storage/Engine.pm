@@ -9,6 +9,9 @@ use Scalar::Util qw(refaddr blessed);
 use Carp 'confess';
 use namespace::autoclean;
 
+use 5.010;
+use Data::Dump qw/dump/;
+
 # the class marker when
 # serializing an object.
 our $CLASS_MARKER = '__CLASS__';
@@ -429,8 +432,14 @@ sub find_type_handler {
             push @constraint_names, $param->name;
         }
         my $constraint_name = join( '+', @constraint_names );
-        return $TYPES{$constraint_name}
-            if exists $TYPES{$constraint_name};
+
+        if ( exists $TYPES{$constraint_name} ) {
+            return $TYPES{$constraint_name};
+        }
+        else {
+            return $self->find_type_handler(
+                $type_constraint->parameters->[0], $value );
+        }
     }
 
     # NOTE:
