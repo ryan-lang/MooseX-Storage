@@ -381,7 +381,11 @@ sub find_type_handler {
     return $self->find_type_handler( $type_constraint->type_parameter,
         $value )
         if ( $type_constraint->parent && $type_constraint->parent eq 'Maybe'
-        and not $type_constraint->parent->can('type_parameter') );
+#        and not $type_constraint->parent->can('type_parameter') );
+# DRL 2015Aug26 - the above doesn't correctly identify a Type::Tiny parameterized 
+#  attribute such as Maybe[Int]. Calling 'type_parameter' in addition to testing
+#  for presence of method corrects this.
+        and not ($type_constraint->parent->can('type_parameter') && $type_constraint->parent->type_parameter) );
 
     # find_type_for is a method of a union type.  If we can call that method
     # then we are dealign with a union and we need to ascertain which of
@@ -423,24 +427,6 @@ sub find_type_handler {
     # do something to throw this assumption
     # totally out the door ;)
     # - SL
-
-    if ( '__ANON__' eq $type_constraint->name
-        && $type_constraint->parameters )
-    {
-        my @constraint_names = ();
-        foreach my $param ( @{ $type_constraint->parameters } ) {
-            push @constraint_names, $param->name;
-        }
-        my $constraint_name = join( '+', @constraint_names );
-
-        if ( exists $TYPES{$constraint_name} ) {
-            return $TYPES{$constraint_name};
-        }
-        else {
-            return $self->find_type_handler(
-                $type_constraint->parameters->[0], $value );
-        }
-    }
 
     # NOTE:
     # if this method hasnt returned by now
